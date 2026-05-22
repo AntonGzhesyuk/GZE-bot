@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
-GZE Group AI Assistant Bot
-Telegram бот для управления задачами, документами и финансами
+GZE Group AI Assistant Bot - ИСПРАВЛЕННАЯ ВЕРСИЯ
+Простой и надежный Telegram бот
 """
 
 import os
 import json
 import sqlite3
 from datetime import datetime
-from typing import Optional
 from dotenv import load_dotenv
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from anthropic import Anthropic
 
 # Загружаем переменные окружения
@@ -21,194 +20,152 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
-# Инициализируем Anthropic клиент
-client = Anthropic()
+print(f"[INFO] Токен загружен: {bool(TELEGRAM_TOKEN)}")
+print(f"[INFO] API ключ загружен: {bool(ANTHROPIC_API_KEY)}")
+
+if not TELEGRAM_TOKEN or not ANTHROPIC_API_KEY:
+    print("[ERROR] Не найдены переменные окружения!")
+    exit(1)
 
 # ===================== БАЗА ДАННЫХ =====================
 
 def init_db():
     """Инициализация SQLite базы данных"""
-    conn = sqlite3.connect("gze_finance.db")
-    cursor = conn.cursor()
-    
-    # Таблица финансовых операций
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            category TEXT,
-            amount REAL NOT NULL,
-            description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            user_id INTEGER
-        )
-    ''')
-    
-    # Таблица задач
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            partner_name TEXT NOT NULL,
-            task_description TEXT NOT NULL,
-            status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP,
-            user_id INTEGER
-        )
-    ''')
-    
-    # Таблица проектов
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            user_id INTEGER
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-def get_project_balance(project_name: str) -> dict:
-    """Получить баланс по проекту"""
-    conn = sqlite3.connect("gze_finance.db")
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT 
-            SUM(CASE WHEN type='income' THEN amount ELSE 0 END) as income,
-            SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) as expense
-        FROM transactions
-        WHERE project_name = ?
-    ''', (project_name,))
-    
-    income, expense = cursor.fetchone()
-    conn.close()
-    
-    income = income or 0
-    expense = expense or 0
-    
-    return {
-        'income': income,
-        'expense': expense,
-        'profit': income - expense
-    }
-
-def add_transaction(project_name: str, trans_type: str, category: str, 
-                   amount: float, description: str, user_id: int):
-    """Добавить финансовую операцию"""
-    conn = sqlite3.connect("gze_finance.db")
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO transactions 
-        (project_name, type, category, amount, description, user_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (project_name, trans_type, category, amount, description, user_id))
-    
-    conn.commit()
-    conn.close()
-
-def add_task(partner_name: str, task_description: str, user_id: int) -> int:
-    """Добавить задачу партнёру"""
-    conn = sqlite3.connect("gze_finance.db")
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO tasks (partner_name, task_description, user_id)
-        VALUES (?, ?, ?)
-    ''', (partner_name, task_description, user_id))
-    
-    conn.commit()
-    task_id = cursor.lastrowid
-    conn.close()
-    
-    return task_id
-
-def get_tasks(status: str = None, user_id: int = None) -> list:
-    """Получить список задач"""
-    conn = sqlite3.connect("gze_finance.db")
-    cursor = conn.cursor()
-    
-    if status:
+    try:
+        conn = sqlite3.connect("gze_finance.db")
+        cursor = conn.cursor()
+        
         cursor.execute('''
-            SELECT id, partner_name, task_description, status, created_at
-            FROM tasks
-            WHERE status = ? AND user_id = ?
-            ORDER BY created_at DESC
-        ''', (status, user_id))
-    else:
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                category TEXT,
+                amount REAL NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                partner_name TEXT NOT NULL,
+                task_description TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                user_id INTEGER
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print("[INFO] База данных инициализирована")
+    except Exception as e:
+        print(f"[ERROR] Ошибка БД: {e}")
+
+def add_transaction(project_name: str, trans_type: str, amount: float, description: str, user_id: int):
+    """Добавить финансовую операцию"""
+    try:
+        conn = sqlite3.connect("gze_finance.db")
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO transactions (project_name, type, amount, description, user_id)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (project_name, trans_type, amount, description, user_id))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[ERROR] Ошибка при добавлении транзакции: {e}")
+
+def add_task(partner_name: str, task_description: str, user_id: int):
+    """Добавить задачу партнёру"""
+    try:
+        conn = sqlite3.connect("gze_finance.db")
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO tasks (partner_name, task_description, user_id)
+            VALUES (?, ?, ?)
+        ''', (partner_name, task_description, user_id))
+        conn.commit()
+        task_id = cursor.lastrowid
+        conn.close()
+        return task_id
+    except Exception as e:
+        print(f"[ERROR] Ошибка при добавлении задачи: {e}")
+        return None
+
+def get_tasks(user_id: int):
+    """Получить список задач"""
+    try:
+        conn = sqlite3.connect("gze_finance.db")
+        cursor = conn.cursor()
         cursor.execute('''
             SELECT id, partner_name, task_description, status, created_at
             FROM tasks
             WHERE user_id = ?
             ORDER BY created_at DESC
+            LIMIT 20
         ''', (user_id,))
-    
-    tasks = cursor.fetchall()
-    conn.close()
-    return tasks
+        tasks = cursor.fetchall()
+        conn.close()
+        return tasks
+    except Exception as e:
+        print(f"[ERROR] Ошибка при получении задач: {e}")
+        return []
 
-def complete_task(task_id: int):
-    """Отметить задачу как выполненную"""
-    conn = sqlite3.connect("gze_finance.db")
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE tasks
-        SET status = 'completed', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    ''', (task_id,))
-    
-    conn.commit()
-    conn.close()
-
-def get_financial_report(user_id: int) -> str:
+def get_financial_report(user_id: int):
     """Получить финансовый отчёт"""
-    conn = sqlite3.connect("gze_finance.db")
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT project_name, type, category, amount, description, created_at
-        FROM transactions
-        WHERE user_id = ?
-        ORDER BY created_at DESC
-        LIMIT 50
-    ''', (user_id,))
-    
-    transactions = cursor.fetchall()
-    conn.close()
-    
-    report = "📊 ФИНАНСОВЫЙ ОТЧЁТ (последние операции):\n\n"
-    
-    projects_data = {}
-    for proj_name, trans_type, category, amount, desc, created_at in transactions:
-        if proj_name not in projects_data:
-            projects_data[proj_name] = {'income': 0, 'expense': 0}
+    try:
+        conn = sqlite3.connect("gze_finance.db")
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT project_name, type, amount
+            FROM transactions
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 100
+        ''', (user_id,))
+        transactions = cursor.fetchall()
+        conn.close()
         
-        if trans_type == 'income':
-            projects_data[proj_name]['income'] += amount
-        else:
-            projects_data[proj_name]['expense'] += amount
-    
-    for proj, data in projects_data.items():
-        profit = data['income'] - data['expense']
-        report += f"📦 *{proj}*\n"
-        report += f"  ✅ Доход: ₽{data['income']:,.0f}\n"
-        report += f"  ❌ Расход: ₽{data['expense']:,.0f}\n"
-        report += f"  💰 Прибыль: ₽{profit:,.0f}\n\n"
-    
-    return report
+        report = "📊 *ФИНАНСОВЫЙ ОТЧЁТ*\n\n"
+        
+        projects_data = {}
+        for proj_name, trans_type, amount in transactions:
+            if proj_name not in projects_data:
+                projects_data[proj_name] = {'income': 0, 'expense': 0}
+            
+            if trans_type == 'income':
+                projects_data[proj_name]['income'] += amount
+            else:
+                projects_data[proj_name]['expense'] += amount
+        
+        if not projects_data:
+            return "📊 Нет операций в финансовом учёте"
+        
+        for proj, data in projects_data.items():
+            profit = data['income'] - data['expense']
+            report += f"📦 *{proj}*\n"
+            report += f"  ✅ Доход: ₽{data['income']:,.0f}\n"
+            report += f"  ❌ Расход: ₽{data['expense']:,.0f}\n"
+            report += f"  💰 Прибыль: ₽{profit:,.0f}\n\n"
+        
+        return report
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании отчёта: {e}")
+        return "❌ Ошибка при создании отчёта"
 
 # ===================== CLAUDE AI =====================
 
-def get_claude_response(user_message: str, conversation_history: list) -> str:
+def get_claude_response(user_message: str, user_id: int) -> str:
     """Получить ответ от Claude"""
-    
-    system_prompt = """Ты - личный AI ассистент для владельца компании GZE Group.
+    try:
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        
+        system_prompt = """Ты - личный AI ассистент для владельца компании GZE Group.
 Компания занимается поставкой строительных материалов.
 
 Твои обязанности:
@@ -216,34 +173,26 @@ def get_claude_response(user_message: str, conversation_history: list) -> str:
 2. Вести финансовый учёт (доходы, расходы, прибыль)
 3. Анализировать цены и рассчитывать наценки
 4. Помогать с документами и организацией
-5. Давать советы по оптимизации бизнеса
 
 Общайся кратко, по делу. Используй эмодзи.
-При обработке команд предлагай конкретные действия."""
-    
-    conversation_history.append({
-        "role": "user",
-        "content": user_message
-    })
-    
-    response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=1000,
-        system=system_prompt,
-        messages=conversation_history
-    )
-    
-    assistant_message = response.content[0].text
-    conversation_history.append({
-        "role": "assistant",
-        "content": assistant_message
-    })
-    
-    # Сохраняем только последние 10 сообщений в памяти
-    if len(conversation_history) > 20:
-        conversation_history = conversation_history[-20:]
-    
-    return assistant_message
+Отвечай на русском языке."""
+        
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=500,
+            system=system_prompt,
+            messages=[
+                {
+                    "role": "user",
+                    "content": user_message
+                }
+            ]
+        )
+        
+        return response.content[0].text
+    except Exception as e:
+        print(f"[ERROR] Ошибка Claude: {e}")
+        return "❌ Ошибка при обработке сообщения. Попробуй позже."
 
 # ===================== TELEGRAM HANDLERS =====================
 
@@ -264,132 +213,177 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Просто пиши мне, и я помогу! 💬
 """
-    await update.message.reply_text(welcome_text, parse_mode="Markdown")
-    
-    # Инициализируем беседу для пользователя
-    if 'conversation' not in context.user_data:
-        context.user_data['conversation'] = []
+    try:
+        await update.message.reply_text(welcome_text, parse_mode="Markdown")
+    except Exception as e:
+        print(f"[ERROR] Ошибка при отправке /start: {e}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка обычных сообщений"""
-    user_id = update.effective_user.id
-    user_message = update.message.text
-    
-    # Инициализируем беседу если нужно
-    if 'conversation' not in context.user_data:
-        context.user_data['conversation'] = []
-    
-    # Показываем "печатает"
-    await update.message.chat.send_action("typing")
-    
-    # Анализируем сообщение на предмет команд
-    lower_msg = user_message.lower()
-    
-    # Команда: добавить доход
-    if 'доход' in lower_msg or 'получил' in lower_msg:
-        response = "Понял, что добавить доход. Укажи:\n💰 Сумму\n📦 Проект\n📝 Описание"
-        context.user_data['action'] = 'add_income'
+    try:
+        user_id = update.effective_user.id
+        user_message = update.message.text
         
-    # Команда: добавить расход
-    elif 'расход' in lower_msg or 'потратил' in lower_msg:
-        response = "Понял. Для расхода скажи:\n💰 Сумму\n📦 Проект\n📝 Описание"
-        context.user_data['action'] = 'add_expense'
+        # Показываем "печатает"
+        await update.message.chat.send_action("typing")
         
-    # Команда: создать задачу
-    elif 'задача' in lower_msg or 'отправь' in lower_msg or 'партнер' in lower_msg:
-        response = "Для задачи укажи:\n👤 Имя партнёра\n📝 Что сделать"
-        context.user_data['action'] = 'add_task'
+        # Анализируем сообщение
+        lower_msg = user_message.lower()
         
-    # Команда: проверить цены
-    elif 'цена' in lower_msg or 'наценка' in lower_msg or 'маржа' in lower_msg:
-        response = "Помогу рассчитать наценку! 📊\n\nУкажи:\n💰 Оптовая цена\n📦 Товар\n🏙️ Город"
-        context.user_data['action'] = 'calc_price'
+        response = None
         
-    else:
-        # Используем Claude для ответа
-        response = get_claude_response(user_message, context.user_data['conversation'])
-    
-    await update.message.reply_text(response, parse_mode="Markdown")
+        # Команда: добавить доход
+        if 'доход' in lower_msg:
+            try:
+                # Пытаемся извлечь сумму
+                import re
+                numbers = re.findall(r'\d+', user_message)
+                if numbers:
+                    amount = float(numbers[0])
+                    project = "Стройматериалы"
+                    add_transaction(project, "income", amount, user_message, user_id)
+                    response = f"✅ Доход ₽{amount:,.0f} добавлен по проекту '{project}'"
+                else:
+                    response = "❌ Укажи сумму дохода (например: 'Доход 100000')"
+            except Exception as e:
+                print(f"[ERROR] Ошибка при добавлении дохода: {e}")
+                response = "❌ Ошибка при добавлении дохода"
+        
+        # Команда: добавить расход
+        elif 'расход' in lower_msg or 'потратил' in lower_msg:
+            try:
+                import re
+                numbers = re.findall(r'\d+', user_message)
+                if numbers:
+                    amount = float(numbers[0])
+                    project = "Стройматериалы"
+                    add_transaction(project, "expense", amount, user_message, user_id)
+                    response = f"✅ Расход ₽{amount:,.0f} добавлен по проекту '{project}'"
+                else:
+                    response = "❌ Укажи сумму расхода (например: 'Расход 50000')"
+            except Exception as e:
+                print(f"[ERROR] Ошибка при добавлении расхода: {e}")
+                response = "❌ Ошибка при добавлении расхода"
+        
+        # Команда: создать задачу
+        elif 'задача' in lower_msg or 'отправь' in lower_msg:
+            try:
+                # Извлекаем партнёра и описание
+                if 'задача' in lower_msg:
+                    parts = user_message.split('задача')
+                    if len(parts) > 1:
+                        task_text = parts[1].strip()
+                        partner = "Партнёр"
+                        task_id = add_task(partner, task_text, user_id)
+                        if task_id:
+                            response = f"✅ Задача #{task_id} создана для партнёра"
+                        else:
+                            response = "❌ Ошибка при создании задачи"
+                    else:
+                        response = "❌ Укажи описание задачи (например: 'Задача: проверить цены')"
+                else:
+                    response = "❌ Используй команду 'задача: описание'"
+            except Exception as e:
+                print(f"[ERROR] Ошибка при создании задачи: {e}")
+                response = "❌ Ошибка при создании задачи"
+        
+        # Если ответ не был установлен - используем Claude
+        if response is None:
+            response = get_claude_response(user_message, user_id)
+        
+        await update.message.reply_text(response, parse_mode="Markdown")
+    except Exception as e:
+        print(f"[ERROR] Ошибка при обработке сообщения: {e}")
+        try:
+            await update.message.reply_text("❌ Произошла ошибка. Попробуй ещё раз.")
+        except:
+            pass
 
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /tasks - показать задачи"""
-    user_id = update.effective_user.id
-    
-    pending = get_tasks(status='pending', user_id=user_id)
-    completed = get_tasks(status='completed', user_id=user_id)
-    
-    response = "📋 *ЗАДАЧИ*\n\n"
-    
-    if pending:
-        response += "⏳ *В процессе:*\n"
-        for task_id, partner, desc, status, created_at in pending:
-            response += f"  #{task_id} @{partner}: {desc}\n"
-    else:
-        response += "✅ Нет активных задач!\n"
-    
-    if completed:
-        response += "\n✅ *Выполнено:*\n"
-        for task_id, partner, desc, status, created_at in completed[:5]:
-            response += f"  #{task_id} @{partner}: {desc}\n"
-    
-    await update.message.reply_text(response, parse_mode="Markdown")
+    """Команда /tasks"""
+    try:
+        user_id = update.effective_user.id
+        tasks = get_tasks(user_id)
+        
+        response = "📋 *ЗАДАЧИ*\n\n"
+        
+        if tasks:
+            for task_id, partner, desc, status, created_at in tasks:
+                emoji = "⏳" if status == "pending" else "✅"
+                response += f"{emoji} #{task_id} @{partner}: {desc}\n"
+        else:
+            response += "Нет задач"
+        
+        await update.message.reply_text(response, parse_mode="Markdown")
+    except Exception as e:
+        print(f"[ERROR] Ошибка в /tasks: {e}")
+        await update.message.reply_text("❌ Ошибка при получении задач")
 
 async def finance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /finance - финансовый отчёт"""
-    user_id = update.effective_user.id
-    report = get_financial_report(user_id)
-    await update.message.reply_text(report, parse_mode="Markdown")
+    """Команда /finance"""
+    try:
+        user_id = update.effective_user.id
+        report = get_financial_report(user_id)
+        await update.message.reply_text(report, parse_mode="Markdown")
+    except Exception as e:
+        print(f"[ERROR] Ошибка в /finance: {e}")
+        await update.message.reply_text("❌ Ошибка при создании отчёта")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /help - справка"""
-    help_text = """📚 *СПРАВКА*
+    """Команда /help"""
+    try:
+        help_text = """📚 *СПРАВКА*
 
-*Основные команды:*
+*Команды:*
 /start - начало
 /tasks - список задач
 /finance - финансовый отчёт
 /help - эта справка
 
-*Примеры команд в чате:*
+*Примеры:*
 
 💰 Добавить доход:
-"Получил доход 50000 по проекту Офисный комплекс от клиента Рога"
+"Получил доход 50000"
 
 ❌ Добавить расход:
-"Потратил 30000 на закупку цемента для проекта Школа"
+"Потратил 30000"
 
 📋 Создать задачу:
-"Отправь задачу Сергею: проверить цены на кирпич в Москве"
+"Задача: проверить цены на кирпич"
 
-📊 Рассчитать наценку:
-"Какую наценку сделать на цемент? Оптовая цена 150, продаю в Казани"
-
-*Просто пиши мне что нужно сделать - я всё понимаю!* 🤖
+*Просто пиши мне что нужно!* 🤖
 """
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+        await update.message.reply_text(help_text, parse_mode="Markdown")
+    except Exception as e:
+        print(f"[ERROR] Ошибка в /help: {e}")
 
 # ===================== MAIN =====================
 
 def main():
     """Главная функция"""
+    print("[INFO] Инициализация бота...")
     
     # Инициализируем БД
     init_db()
     
-    # Создаём приложение
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # Добавляем обработчики команд
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("tasks", tasks_command))
-    app.add_handler(CommandHandler("finance", finance_command))
-    app.add_handler(CommandHandler("help", help_command))
-    
-    # Добавляем обработчик для обычных сообщений
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("🚀 Бот запущен! Ожидание сообщений...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        # Создаём приложение
+        app = Application.builder().token(TELEGRAM_TOKEN).build()
+        
+        # Добавляем обработчики команд
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("tasks", tasks_command))
+        app.add_handler(CommandHandler("finance", finance_command))
+        app.add_handler(CommandHandler("help", help_command))
+        
+        # Добавляем обработчик для обычных сообщений
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        print("[INFO] 🚀 Бот запущен! Ожидание сообщений...")
+        app.run_polling(allowed_updates=[])
+    except Exception as e:
+        print(f"[FATAL ERROR] Ошибка при запуске бота: {e}")
+        exit(1)
 
 if __name__ == "__main__":
     main()
